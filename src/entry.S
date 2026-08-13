@@ -18,39 +18,43 @@ _start:
     cli
     mov $stack_top, %esp
 
-    # Enable PAE.
-    mov %cr4, %eax
-    or $0x20, %eax
-    mov %eax, %cr4
-
-    # Install identity-mapped 2 MiB page tables.
+    # PML4[0] -> PDPT.
     mov $pml4_table, %eax
     mov $pdpt_table, %ebx
     or $0x3, %ebx
     mov %ebx, (%eax)
 
+    # PDPT[0] -> PD.
+    mov $pdpt_table, %eax
     mov $pd_table, %ebx
     or $0x3, %ebx
-    mov %ebx, (%ebx)
-
-    mov $pd_table, %eax
-    mov $0x83, %ebx
     mov %ebx, (%eax)
+
+    # PD[0] -> 2 MiB identity mapping: 0x00000000-0x001FFFFF.
+    mov $pd_table, %eax
+    mov $0x00000083, %ebx
+    mov %ebx, (%eax)
+
+    # Enable PAE.
+    mov %cr4, %eax
+    or $0x20, %eax
+    mov %eax, %cr4
 
     mov $pml4_table, %eax
     mov %eax, %cr3
 
-    # Enable long mode.
+    # Enable long mode (EFER.LME).
     mov $0xC0000080, %ecx
     rdmsr
     or $0x100, %eax
     wrmsr
 
-    # Enable paging.
+    # Enable paging (CR0.PG).
     mov %cr0, %eax
     or $0x80000000, %eax
     mov %eax, %cr0
 
+    # Load a 64-bit GDT and perform the required far jump.
     lgdt gdt64_ptr
     ljmp $0x08, $long_mode_entry
 
@@ -64,18 +68,19 @@ long_mode_entry:
     call kernel_main
 
 halt:
+    cli
     hlt
     jmp halt
 
 .section .rodata
 .align 8
 gdt64:
-    .quad 0
+    .quad 0x0000000000000000
     .quad 0x00AF9A000000FFFF
-    .quad 0x00AF92000000FFFF
+    .quad 0x00CF92000000FFFF
 gdt64_ptr:
     .word gdt64_end - gdt64 - 1
-    .long gdt64
+    .quad gdt64
 gdt64_end:
 
 .section .bss
